@@ -5,6 +5,8 @@ import { normalizeRefreshRate, updateDocumentTitle } from './helpers.js';
 import { invalidateQueryStringCache } from './api-client.js';
 import { closeSettingsPanel } from './settings-manager.js';
 import { openPresetSettings } from './settings-manager.js';
+import { getCachedFavorites, isFavoritesCacheValid } from './favorites-fetcher.js';
+import { analyzeTagsFromFavorites, canMakeRecommendations } from './tag-analyzer.js';
 
 export function createNewPreset() {
     var newPreset = {
@@ -109,6 +111,11 @@ export async function loadPresets(reset = false) {
 }
 
 export function loadPreset(index) {
+    // Deactivate recommendation mode when loading a regular preset
+    if (state.recommendationMode) {
+        deactivateRecommendationMode();
+    }
+    
     state.presetSettings = state.presetsData[index];
     
     // Migrate refreshRate from milliseconds to seconds if needed
@@ -202,6 +209,11 @@ export function resetPresets() {
 }
 
 export function loadTemporarySearch() {
+    // Deactivate recommendation mode when loading a temporary search
+    if (state.recommendationMode) {
+        deactivateRecommendationMode();
+    }
+    
     // Save current preset settings as backup
     if (!state.temporarySearchActive) {
         state.savedPresetSettings = { ...state.presetSettings };
@@ -325,6 +337,147 @@ export function confirmPresetName() {
     openPresetSettings();
 }
 
+// Activate recommendation mode
+export function activateRecommendationMode() {
+    // Check if we have credentials
+    if (!state.globalSettings || !state.globalSettings.username || !state.globalSettings.apikey) {
+        alert('Please set your e621 username and API key in Global Settings to use recommendations.');
+        return;
+    }
+    
+    // Check if we have cached favorites
+    if (!isFavoritesCacheValid(state.globalSettings.username)) {
+        alert('Please analyze your favorites first by clicking "Analyze Favorites" in Global Settings.');
+        return;
+    }
+    
+    // Load cached favorites
+    const cache = getCachedFavorites();
+    if (!cache || !cache.favoritesPosts || cache.favoritesPosts.length === 0) {
+        alert('No favorites found. Please analyze your favorites first.');
+        return;
+    }
+    
+    // Check if we can make recommendations
+    const validation = canMakeRecommendations(cache.favoritesPosts);
+    if (!validation.valid) {
+        alert(`Cannot generate recommendations: ${validation.reason}`);
+        return;
+    }
+    
+    // Analyze tags if not already done
+    if (!state.analyzedTags || state.analyzedTags.length === 0) {
+        Logger.log('[activateRecommendationMode] Analyzing tags...');
+        analyzeTagsFromFavorites(cache.favoritesPosts);
+    }
+    
+    // Ensure we have preset settings (use current or create minimal)
+    if (!state.presetSettings) {
+        state.presetSettings = {
+            presetName: "Recommended",
+            refreshRate: "10",
+            tags: "",
+            blacklist: "",
+            whitelist: "",
+            adultcontent: true
+        };
+    }
+    
+    // Activate recommendation mode
+    state.recommendationMode = true;
+    state.favoritesCachedData = cache;
+    
+    // Clear temporary search
+    state.temporarySearchActive = false;
+    state.savedPresetSettings = null;
+    localStorage.removeItem("temporarySearch");
+    localStorage.removeItem("temporarySearchActive");
+    
+    // Reset batch cache
+    state.currentPostBatch = [];
+    state.currentBatchIndex = 0;
+    state.currentBatchPage = 1;
+    state.currentBatchQuery = "";
+    state.prefetchedBatch = [];
+    state.prefetchedPage = null;
+    state.prefetchPromise = null;
+    invalidateQueryStringCache();
+    
+    // Show time period selector
+    elements.timePeriodSelector.style.display = 'block';
+    
+    // Highlight the recommended button
+    elements.recommendedPresetBtn.style.backgroundColor = 'var(--e621-button-hover)';
+    
+    // Remove selection from presets
+    const highlightedPreset = document.querySelector(".presetItem.selected");
+    if (highlightedPreset) {
+        highlightedPreset.classList.remove("selected");
+    }
+    
+    // Show simplified settings for recommendations (hide preset-specific fields)
+    // Hide preset name, tags, save/delete buttons
+    const presetNameDiv = document.querySelector('#settingscolumn > div[style*="margin-bottom: 15px"]');
+    const tagsDiv = document.querySelector('label[for="tags"]')?.parentElement;
+    const saveButton = document.getElementById('savePreset');
+    const deleteButton = document.getElementById('deletePreset');
+    
+    if (presetNameDiv) presetNameDiv.style.display = 'none';
+    if (tagsDiv) tagsDiv.style.display = 'none';
+    if (saveButton) saveButton.style.display = 'none';
+    if (deleteButton) deleteButton.style.display = 'none';
+    
+    // Keep blacklist, whitelist, refresh rate, and adult content visible
+    // These still apply to recommendations
+    
+    Logger.log('[activateRecommendationMode] Recommendation mode activated');
+    Logger.log(`[activateRecommendationMode] Using ${cache.favoritesPosts.length} favorites, ${state.analyzedTags.length} analyzed tags`);
+    
+    updateDocumentTitle();
+    // Don't auto-close settings panel - let user adjust time period and see results
+}
+
+// Deactivate recommendation mode
+export function deactivateRecommendationMode() {
+    state.recommendationMode = false;
+    
+    // Hide time period selector
+    elements.timePeriodSelector.style.display = 'none';
+    
+    // Reset button style
+    elements.recommendedPresetBtn.style.backgroundColor = 'var(--e621-button-primary)';
+    
+    // Show all preset settings again
+    const presetNameDiv = document.querySelector('#settingscolumn > div[style*="margin-bottom: 15px"]');
+    const tagsDiv = document.querySelector('label[for="tags"]')?.parentElement;
+    const saveButton = document.getElementById('savePreset');
+    const deleteButton = document.getElementById('deletePreset');
+    
+    if (presetNameDiv) presetNameDiv.style.display = 'flex';
+    if (tagsDiv) tagsDiv.style.display = 'flex';
+    if (saveButton) saveButton.style.display = 'inline-block';
+    if (deleteButton) deleteButton.style.display = 'inline-block';
+    
+    Logger.log('[deactivateRecommendationMode] Recommendation mode deactivated');
+}
+
+// Update time period for recommendations
+export function updateRecommendationTimePeriod(period) {
+    state.recommendationTimePeriod = period;
+    
+    // Reset batch cache to fetch new results
+    state.currentPostBatch = [];
+    state.currentBatchIndex = 0;
+    state.currentBatchPage = 1;
+    state.currentBatchQuery = "";
+    state.prefetchedBatch = [];
+    state.prefetchedPage = null;
+    state.prefetchPromise = null;
+    invalidateQueryStringCache();
+    
+    Logger.log(`[updateRecommendationTimePeriod] Time period changed to: ${period}`);
+}
+
 export function setupPresetManager() {
     document.getElementById('addPresetBtn').addEventListener('click', createNewPreset);
     document.getElementById('savePreset').addEventListener('click', function () { savePreset(state.selectedPreset); });
@@ -332,6 +485,12 @@ export function setupPresetManager() {
     document.getElementById('resetPresetsBtn').addEventListener('click', resetPresets);
     document.getElementById('playSearchBtn').addEventListener('click', loadTemporarySearch);
     document.getElementById('saveSearchAsPresetBtn').addEventListener('click', showPresetNamePrompt);
+    
+    // Recommendation mode event listeners
+    elements.recommendedPresetBtn.addEventListener('click', activateRecommendationMode);
+    elements.timePeriodSelect.addEventListener('change', function(e) {
+        updateRecommendationTimePeriod(e.target.value);
+    });
     
     // Event listeners for the preset name modal
     elements.presetNameCancel.addEventListener('click', hidePresetNamePrompt);

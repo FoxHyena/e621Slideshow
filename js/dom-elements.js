@@ -26,5 +26,11 @@ export const elements = {
     presetNameError: document.getElementById('presetNameError'),
     presetNameCancel: document.getElementById('presetNameCancel'),
     presetNameConfirm: document.getElementById('presetNameConfirm'),
-    pauseIcon: document.getElementById('pauseIcon')
+    pauseIcon: document.getElementById('pauseIcon'),
+    // Recommendation elements
+    recommendedPresetBtn: document.getElementById('recommendedPresetBtn'),
+    timePeriodSelector: document.getElementById('timePeriodSelector'),
+    timePeriodSelect: document.getElementById('timePeriodSelect'),
+    fetchFavoritesBtn: document.getElementById('fetchFavoritesBtn'),
+    favoritesStatus: document.getElementById('favoritesStatus')
 };
