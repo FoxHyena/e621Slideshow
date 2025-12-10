@@ -3,7 +3,7 @@ import { elements } from './dom-elements.js';
 import Logger from './logger.js';
 import { DEFAULT_BATCH_SIZE } from './constants.js';
 import { pause, unPause } from './helpers.js';
-import { invalidateQueryStringCache } from './api-client.js';
+import { invalidateQueryStringCache, validateCredentials } from './api-client.js';
 export function openSettingsPanel() {
     state.settingsPanelOpen = true;
     elements.settingsPanel.style.display = 'flex';
@@ -107,7 +107,7 @@ export function openGlobalSettings() {
     loadGlobalSettings();
 }
 
-export function loadGlobalSettings() {
+export async function loadGlobalSettings() {
     let globalSettingsJSON = localStorage.getItem("globalSettings");
 
     if (globalSettingsJSON === null || globalSettingsJSON === undefined) {
@@ -139,10 +139,24 @@ export function loadGlobalSettings() {
     document.getElementById("batchSize").value = state.globalSettings.batchSize;
     document.getElementById("debugMode").checked = state.globalSettings.debug;
 
+    // Validate credentials if they exist
+    if (state.globalSettings.username && state.globalSettings.apikey) {
+        Logger.log("Validating saved credentials...");
+        const result = await validateCredentials(state.globalSettings.username, state.globalSettings.apikey);
+        state.credentialsValid = result.valid;
+        if (result.valid) {
+            Logger.log("Credentials are valid");
+        } else {
+            Logger.log(`Credentials validation failed: ${result.error}`);
+        }
+    } else {
+        state.credentialsValid = false;
+    }
+
     Logger.log("loaded global settings");
 }
 
-export function saveGlobalSettings() {
+export async function saveGlobalSettings() {
     let globaltagsValue = document.getElementById("globaltags").value;
     let globalblacklistValue = document.getElementById("globalblacklist").value;
     let globalwhitelistValue = document.getElementById("globalwhitelist").value;
@@ -152,6 +166,11 @@ export function saveGlobalSettings() {
     // Check if batch size changed - if so, reset cache to avoid pagination issues
     const oldBatchSize = state.globalSettings ? (state.globalSettings.batchSize || DEFAULT_BATCH_SIZE) : DEFAULT_BATCH_SIZE;
     const batchSizeChanged = oldBatchSize !== batchSizeValue;
+
+    // Check if credentials changed
+    const credentialsChanged = 
+        state.globalSettings.username !== elements.usernameInput.value ||
+        state.globalSettings.apikey !== elements.apiKeyInput.value;
 
     let loadedglobalSettings = {
         "username": elements.usernameInput.value,
@@ -186,6 +205,27 @@ export function saveGlobalSettings() {
         state.prefetchedBatch = [];
         state.prefetchedPage = null;
         state.prefetchPromise = null;
+    }
+
+    // Validate credentials if they changed
+    if (credentialsChanged) {
+        if (state.globalSettings.username && state.globalSettings.apikey) {
+            Logger.log("Validating credentials...");
+            const result = await validateCredentials(state.globalSettings.username, state.globalSettings.apikey);
+            state.credentialsValid = result.valid;
+            
+            if (result.valid) {
+                Logger.log("Credentials are valid - favorites feature enabled");
+                // Clear favorites cache when credentials change
+                state.favoritesCache.clear();
+            } else {
+                Logger.log(`Credentials validation failed: ${result.error}`);
+                state.credentialsValid = false;
+            }
+        } else {
+            state.credentialsValid = false;
+            state.favoritesCache.clear();
+        }
     }
 
     closeSettingsPanel();

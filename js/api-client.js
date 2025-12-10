@@ -56,3 +56,132 @@ export function buildPostsApiUrl(queryParams) {
 export function buildPostApiUrl(postId) {
     return `${getApiBaseUrl()}/posts/${postId}`;
 }
+
+// Build API URL for favorites endpoint
+export function buildFavoritesApiUrl() {
+    return `${getApiBaseUrl()}/favorites.json`;
+}
+
+// Build API URL for a specific favorite
+export function buildFavoriteApiUrl(postId) {
+    return `${getApiBaseUrl()}/favorites/${postId}.json`;
+}
+
+// Validate user credentials by attempting to fetch favorites
+export async function validateCredentials(username, apiKey) {
+    if (!username || !apiKey || username.trim() === '' || apiKey.trim() === '') {
+        return { valid: false, error: 'Username and API key are required' };
+    }
+
+    try {
+        const url = `${buildFavoritesApiUrl()}?limit=1`;
+        const headers = {
+            'Authorization': `Basic ${btoa(`${username}:${apiKey}`)}`,
+            'User-Agent': 'e621AutoViewer (by Leithey)'
+        };
+
+        const response = await fetch(url, { headers });
+        
+        if (response.ok) {
+            return { valid: true };
+        } else if (response.status === 401 || response.status === 403) {
+            return { valid: false, error: 'Invalid credentials' };
+        } else {
+            return { valid: false, error: `HTTP error ${response.status}` };
+        }
+    } catch (error) {
+        return { valid: false, error: `Network error: ${error.message}` };
+    }
+}
+
+// Check if a specific post is favorited
+export async function checkIfFavorited(postId, username, apiKey) {
+    if (!username || !apiKey || !postId) {
+        return false;
+    }
+
+    try {
+        // We need to fetch the user's favorites and check if this post is in there
+        // Unfortunately, e621 API doesn't have a direct "is favorited" endpoint
+        // We'll need to search through favorites or rely on the post data
+        const url = `${getApiBaseUrl()}/posts/${postId}.json`;
+        const headers = {
+            'Authorization': `Basic ${btoa(`${username}:${apiKey}`)}`,
+            'User-Agent': 'e621AutoViewer (by Leithey)'
+        };
+
+        const response = await fetch(url, { headers });
+        
+        if (response.ok) {
+            const data = await response.json();
+            // The post object has an is_favorited property when authenticated
+            return data.post && data.post.is_favorited === true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error checking favorite status:', error);
+        return false;
+    }
+}
+
+// Add a post to favorites
+export async function addToFavorites(postId, username, apiKey) {
+    if (!username || !apiKey || !postId) {
+        return { success: false, error: 'Missing required parameters' };
+    }
+
+    try {
+        const url = buildFavoritesApiUrl();
+        const headers = {
+            'Authorization': `Basic ${btoa(`${username}:${apiKey}`)}`,
+            'User-Agent': 'e621AutoViewer (by Leithey)',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        };
+
+        const body = new URLSearchParams({ 'post_id': postId });
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: headers,
+            body: body
+        });
+
+        if (response.ok) {
+            return { success: true };
+        } else {
+            const errorText = await response.text();
+            return { success: false, error: `HTTP ${response.status}: ${errorText}` };
+        }
+    } catch (error) {
+        return { success: false, error: `Network error: ${error.message}` };
+    }
+}
+
+// Remove a post from favorites
+export async function removeFromFavorites(postId, username, apiKey) {
+    if (!username || !apiKey || !postId) {
+        return { success: false, error: 'Missing required parameters' };
+    }
+
+    try {
+        const url = buildFavoriteApiUrl(postId);
+        const headers = {
+            'Authorization': `Basic ${btoa(`${username}:${apiKey}`)}`,
+            'User-Agent': 'e621AutoViewer (by Leithey)'
+        };
+
+        const response = await fetch(url, {
+            method: 'DELETE',
+            headers: headers
+        });
+
+        if (response.ok || response.status === 204) {
+            return { success: true };
+        } else {
+            const errorText = await response.text();
+            return { success: false, error: `HTTP ${response.status}: ${errorText}` };
+        }
+    } catch (error) {
+        return { success: false, error: `Network error: ${error.message}` };
+    }
+}

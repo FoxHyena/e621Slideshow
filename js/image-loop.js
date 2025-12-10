@@ -3,7 +3,8 @@ import { elements } from './dom-elements.js';
 import Logger from './logger.js';
 import { ERROR_TYPES } from './constants.js';
 import { getNewImageUrl } from './image-fetcher.js';
-import { showLoading, hideLoading } from './ui-controls.js';
+import { showLoading, hideLoading, updateFavoriteButtonState, updateFavoriteButtonVisibility } from './ui-controls.js';
+import { checkIfFavorited } from './api-client.js';
 
 //recursive function that gets a new image and apply it to the screen, then waits and repeats
 export async function imageLoop(skipNewSearch = false) {
@@ -42,6 +43,41 @@ export async function imageLoop(skipNewSearch = false) {
                         state.firstImageLoaded = true;
                         hideLoading();
                         Logger.log(`[imageLoop] Image displayed successfully`);
+                        
+                        // Get the post ID from the most recent history entry
+                        if (state.urlHistory.length > 0) {
+                            const latestEntry = state.urlHistory[state.urlHistory.length - 1];
+                            const postId = latestEntry[1]; // fileId is at index 1
+                            state.currentPostId = postId;
+                            Logger.log(`[imageLoop] Current post ID: ${postId}`);
+                            
+                            // Check if post is favorited and update button
+                            if (state.credentialsValid) {
+                                // Check cache first
+                                if (state.favoritesCache.has(postId)) {
+                                    Logger.log(`[imageLoop] Post ${postId} found in favorites cache`);
+                                    updateFavoriteButtonState(true);
+                                } else {
+                                    // Check via API
+                                    Logger.log(`[imageLoop] Checking favorite status for post ${postId}...`);
+                                    const isFavorited = await checkIfFavorited(
+                                        postId,
+                                        state.globalSettings.username,
+                                        state.globalSettings.apikey
+                                    );
+                                    
+                                    if (isFavorited) {
+                                        state.favoritesCache.add(postId);
+                                    }
+                                    
+                                    updateFavoriteButtonState(isFavorited);
+                                }
+                                updateFavoriteButtonVisibility();
+                            } else {
+                                updateFavoriteButtonState(false);
+                                updateFavoriteButtonVisibility();
+                            }
+                        }
                     } else {
                         Logger.log(`[imageLoop] Image loaded but not displayed (paused: ${state.paused}, pageIsHidden: ${state.pageIsHidden})`);
                     }
