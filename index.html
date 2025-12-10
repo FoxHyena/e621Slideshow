@@ -107,11 +107,13 @@
         display: flex;
         justify-content: space-between;
         flex-direction: row;
-        width: 200px;
+        width: 250px;
         z-index: 100;
+        gap: 5px;
       }
       #sourceButton,
-      #downloadButton {
+      #downloadButton,
+      #favoriteButton {
         background-size: cover;
         background-color: rgba(0, 0, 0, 0.142);
         border: none;
@@ -121,6 +123,17 @@
         font-size: 20px;
         color: white;
         border-radius: 5px;
+      }
+      #favoriteButton {
+        font-size: 24px;
+        padding: 5px 10px;
+        transition: color 0.2s ease;
+      }
+      #favoriteButton.favorited {
+        color: #ffd700; /* Gold color when favorited */
+      }
+      #favoriteButton:hover {
+        opacity: 0.8;
       }
       #settingsButtonDiv {
         position: fixed;
@@ -497,6 +510,7 @@
       <div id="bottomCenterButtons">
         <button id="sourceButton">Source</button>
         <button id="downloadButton">Download</button>
+        <button id="favoriteButton">★</button>
       </div>
 
       <div id="loading">Loading...</div>

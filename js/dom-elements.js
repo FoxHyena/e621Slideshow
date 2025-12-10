@@ -8,6 +8,7 @@ export const elements = {
     loadingtop: document.getElementById('loadingtop'),
     sourceButton: document.getElementById('sourceButton'),
     downloadButton: document.getElementById('downloadButton'),
+    favoriteButton: document.getElementById('favoriteButton'),
     globalSettingsButton: document.getElementById('globalsettingsbutton'),
     globalPresetsButton: document.getElementById('presetsettingsbutton'),
     creditsButton: document.getElementById('creditsbutton'),

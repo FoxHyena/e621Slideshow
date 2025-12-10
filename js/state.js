@@ -30,5 +30,10 @@ export const state = {
     prefetchedBatch: [], // Array to store prefetched posts
     prefetchedPage: null, // Page number of prefetched batch
     // Query string caching
-    cachedQueryString: null // Cached query string to avoid redundant building
+    cachedQueryString: null, // Cached query string to avoid redundant building
+    // Favorites state
+    credentialsValid: false, // Whether username/API key are valid
+    currentPostId: null, // Current post ID being displayed
+    currentPostIsFavorited: false, // Whether current post is favorited
+    favoritesCache: new Set() // Cache of favorited post IDs for quick lookup
 };
