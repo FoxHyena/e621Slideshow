@@ -251,7 +251,7 @@ async function fetchAndAnalyzeFavorites(forceRefresh = false) {
         // Analyze tags
         elements.favoritesStatus.textContent = 'Analyzing tags...';
         Logger.log('[fetchAndAnalyzeFavorites] Analyzing tags...');
-        analyzeTagsFromFavorites(favorites);
+        await analyzeTagsFromFavorites(favorites);
         
         // Show success
         elements.favoritesStatus.textContent = `✓ ${favorites.length} favorites analyzed`;

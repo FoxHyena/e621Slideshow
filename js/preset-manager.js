@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { elements } from './dom-elements.js';
 import Logger from './logger.js';
-import { normalizeRefreshRate, updateDocumentTitle } from './helpers.js';
+import { normalizeRefreshRate, updateDocumentTitle, unPause } from './helpers.js';
 import { invalidateQueryStringCache } from './api-client.js';
 import { closeSettingsPanel } from './settings-manager.js';
 import { openPresetSettings } from './settings-manager.js';
@@ -338,7 +338,7 @@ export function confirmPresetName() {
 }
 
 // Activate recommendation mode
-export function activateRecommendationMode() {
+export async function activateRecommendationMode() {
     // Check if we have credentials
     if (!state.globalSettings || !state.globalSettings.username || !state.globalSettings.apikey) {
         alert('Please set your e621 username and API key in Global Settings to use recommendations.');
@@ -367,8 +367,8 @@ export function activateRecommendationMode() {
     
     // Analyze tags if not already done
     if (!state.analyzedTags || state.analyzedTags.length === 0) {
-        Logger.log('[activateRecommendationMode] Analyzing tags...');
-        analyzeTagsFromFavorites(cache.favoritesPosts);
+        alert('Tags not analyzed. Please analyze your favorites first.');
+        return;
     }
     
     // Ensure we have preset settings (use current or create minimal)
@@ -478,6 +478,42 @@ export function updateRecommendationTimePeriod(period) {
     Logger.log(`[updateRecommendationTimePeriod] Time period changed to: ${period}`);
 }
 
+// Handle blacklist input changes - update state and restart slideshow
+function handleBlacklistChange() {
+    const blacklistInput = document.getElementById('blacklist');
+    if (!blacklistInput || !state.presetSettings) {
+        return;
+    }
+    
+    // Update state with current input value
+    const newBlacklist = blacklistInput.value;
+    const oldBlacklist = state.presetSettings.blacklist || '';
+    
+    // Only update if value actually changed
+    if (newBlacklist !== oldBlacklist) {
+        Logger.log(`[handleBlacklistChange] Blacklist changed: "${oldBlacklist}" -> "${newBlacklist}"`);
+        state.presetSettings.blacklist = newBlacklist;
+        
+        // Invalidate query cache
+        invalidateQueryStringCache();
+        
+        // Reset batch cache
+        state.currentPostBatch = [];
+        state.currentBatchIndex = 0;
+        state.currentBatchPage = 1;
+        state.currentBatchQuery = "";
+        state.prefetchedBatch = [];
+        state.prefetchedPage = null;
+        state.prefetchPromise = null;
+        
+        // Restart slideshow if not paused
+        if (!state.paused) {
+            Logger.log('[handleBlacklistChange] Restarting slideshow with new blacklist');
+            unPause(false);
+        }
+    }
+}
+
 export function setupPresetManager() {
     document.getElementById('addPresetBtn').addEventListener('click', createNewPreset);
     document.getElementById('savePreset').addEventListener('click', function () { savePreset(state.selectedPreset); });
@@ -513,4 +549,61 @@ export function setupPresetManager() {
             hidePresetNamePrompt();
         }
     });
+    
+    // Handle blacklist input changes - use both 'input' and 'change' events
+    // 'input' fires on every keystroke, 'change' fires when field loses focus
+    // We also watch for programmatic changes (e.g., when X button removes a tag)
+    const blacklistInput = document.getElementById('blacklist');
+    if (blacklistInput) {
+        let debounceTimer;
+        let lastValue = blacklistInput.value;
+        
+        // Function to check for value changes and handle them
+        const checkAndHandleChange = function() {
+            const currentValue = blacklistInput.value;
+            if (currentValue !== lastValue && state.presetSettings) {
+                lastValue = currentValue;
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    handleBlacklistChange();
+                }, 150); // Small delay to batch rapid changes
+            }
+        };
+        
+        // Update state immediately on input (for real-time updates)
+        blacklistInput.addEventListener('input', function() {
+            if (state.presetSettings) {
+                state.presetSettings.blacklist = blacklistInput.value;
+                invalidateQueryStringCache();
+                lastValue = blacklistInput.value;
+            }
+        });
+        
+        // Handle change event (fires when input loses focus or Enter is pressed)
+        blacklistInput.addEventListener('change', checkAndHandleChange);
+        
+        // Handle blur event (when input loses focus) - catches programmatic changes
+        blacklistInput.addEventListener('blur', checkAndHandleChange);
+        
+        // Also listen for clicks that might modify the input (e.g., X buttons to remove tags)
+        // This ensures we catch tag removal even if the change event doesn't fire
+        const handleClick = function(e) {
+            // Check if click was on a button or within the autocomplete container
+            // that's associated with the blacklist input
+            const target = e.target;
+            const isButton = target.tagName === 'BUTTON' || target.getAttribute('role') === 'button';
+            const isInAutocomplete = target.closest('.autocomplete-container') === blacklistInput.closest('.autocomplete-container');
+            
+            if (isButton || isInAutocomplete) {
+                // Small delay to allow the input value to update if it was changed programmatically
+                setTimeout(checkAndHandleChange, 100);
+            }
+        };
+        
+        // Listen on the blacklist input's container to catch clicks nearby
+        const container = blacklistInput.closest('.tooltip') || blacklistInput.parentElement;
+        if (container) {
+            container.addEventListener('click', handleClick, true);
+        }
+    }
 }
