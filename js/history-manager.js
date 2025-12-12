@@ -5,12 +5,14 @@ import { pause, unPause } from './helpers.js';
 import { getHistoryPosInArray } from './helpers.js';
 import { updateFavoriteButtonState } from './ui-controls.js';
 import { checkIfFavorited } from './api-client.js';
+import { clearPreloadQueue } from './image-fetcher.js';
 
 export async function previousImage() {
     // Navigate backward in history (decrement negative position)
     // currentHistoryPos = 0 is newest, -1 is previous, -2 is before that, etc.
     if (state.currentHistoryPos > -state.urlHistory.length + 1) {
         await pause();
+        clearPreloadQueue(); // Clear preloaded images when navigating backward
         state.currentHistoryPos--;
         const pos = getHistoryPosInArray();
         Logger.log('Previous image requested', pos);
