@@ -1,7 +1,13 @@
 import { state } from './state.js';
+import { buildRecommendationQuery } from './tag-analyzer.js';
 
 // Build complete query string including tags and blacklist
 export function buildQueryString() {
+    // Check if recommendation mode is active
+    if (state.recommendationMode && state.analyzedTags && state.analyzedTags.length > 0) {
+        return buildRecommendationQueryString();
+    }
+    
     // Return cached query string if available
     if (state.cachedQueryString !== null) {
         return state.cachedQueryString;
@@ -31,6 +37,39 @@ export function buildQueryString() {
     // Cache and return the result
     state.cachedQueryString = allTags.join(' ');
     return state.cachedQueryString;
+}
+
+// Build recommendation query string
+function buildRecommendationQueryString() {
+    // Combine global and preset blacklist tags, prefix with '-'
+    let blacklist = state.globalSettings.globalblacklist.split(" ");
+    
+    // Add preset blacklist if preset settings exist
+    if (state.presetSettings && state.presetSettings.blacklist) {
+        let presetblacklist = state.presetSettings.blacklist.split(" ");
+        blacklist = blacklist.concat(presetblacklist);
+    }
+    
+    blacklist = blacklist.filter(item => item.trim() !== '');
+    
+    // Prefix blacklist tags with '-' for e621 API exclusion syntax
+    const negatedBlacklist = blacklist.map(tag => `-${tag}`);
+    
+    // Automatically exclude video file types (webm, mp4)
+    const excludedFileTypes = ['-filetype:webm', '-filetype:mp4'];
+    
+    // Build recommendation query from analyzed tags
+    const recommendationQuery = buildRecommendationQuery(
+        state.analyzedTags,
+        state.recommendationTimePeriod,
+        blacklist,
+        25 // Top 25 tags
+    );
+    
+    // Combine recommendation query with blacklist and file type exclusions
+    const allParts = [recommendationQuery].concat(negatedBlacklist).concat(excludedFileTypes);
+    
+    return allParts.join(' ');
 }
 
 // Invalidate the query string cache (call when settings change)

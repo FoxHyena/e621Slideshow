@@ -489,6 +489,16 @@
         font-size: 0.9em;
         opacity: 0.8;
       }
+
+      /* Mobile styles for settings panel */
+      @media (max-width: 768px) {
+        .settingsPanel {
+          width: 80%;
+          height: 90%;
+          max-width: 95%;
+          max-height: 90%;
+        }
+      }
     </style>
   </head>
   <body>
@@ -670,6 +680,41 @@
             </div>
             <div
               style="
+                margin-top: 20px;
+                padding-top: 20px;
+                border-top: 2px solid var(--e621-border);
+              "
+            >
+              <h4 style="margin-top: 0">Recommendations</h4>
+              <div
+                class="tooltip"
+                style="
+                  display: flex;
+                  margin-bottom: 10px;
+                  flex-direction: column;
+                "
+              >
+                <div style="margin-bottom: 10px">
+                  <button id="fetchFavoritesBtn" style="width: 100%">
+                    Analyze Favorites
+                  </button>
+                </div>
+                <div
+                  id="favoritesStatus"
+                  style="
+                    font-size: 12px;
+                    color: var(--e621-text-secondary);
+                    min-height: 20px;
+                  "
+                ></div>
+                <span class="tooltiptext"
+                  >Fetch and analyze your e621 favorites to enable personalized
+                  recommendations. Requires username and API key.</span
+                >
+              </div>
+            </div>
+            <div
+              style="
                 display: flex;
                 justify-content: space-between;
                 margin-top: auto;
@@ -697,6 +742,37 @@
             >
               <button id="addPresetBtn">+</button>
               <button id="resetPresetsBtn">Reset</button>
+            </div>
+            <div style="margin-bottom: 8px">
+              <button
+                id="recommendedPresetBtn"
+                style="
+                  width: 100%;
+                  background-color: var(--e621-button-primary);
+                "
+              >
+                📊 Recommended
+              </button>
+              <div
+                id="timePeriodSelector"
+                style="display: none; margin-top: 8px"
+              >
+                <select
+                  id="timePeriodSelect"
+                  style="
+                    width: 100%;
+                    background-color: var(--e621-bg-input);
+                    color: var(--e621-text-primary);
+                    border: 1px solid var(--e621-border);
+                    padding: 4px;
+                  "
+                >
+                  <option value="week">Last Week</option>
+                  <option value="month" selected>Last Month</option>
+                  <option value="6months">Last 6 Months</option>
+                  <option value="year">Last Year</option>
+                </select>
+              </div>
             </div>
             <div id="presetList">
               <!-- Preset items will be dynamically added here -->

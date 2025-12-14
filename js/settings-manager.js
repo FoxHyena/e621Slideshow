@@ -4,6 +4,9 @@ import Logger from './logger.js';
 import { DEFAULT_BATCH_SIZE } from './constants.js';
 import { pause, unPause } from './helpers.js';
 import { invalidateQueryStringCache, validateCredentials } from './api-client.js';
+import { loadFavorites, getCachedFavorites, isFavoritesCacheValid } from './favorites-fetcher.js';
+import { analyzeTagsFromFavorites, getRecommendationStats } from './tag-analyzer.js';
+import { formatRelativeTime } from './time-utils.js';
 export function openSettingsPanel() {
     state.settingsPanelOpen = true;
     elements.settingsPanel.style.display = 'flex';
@@ -153,7 +156,124 @@ export async function loadGlobalSettings() {
         state.credentialsValid = false;
     }
 
+    // Update favorites status display
+    updateFavoritesStatus();
+
     Logger.log("loaded global settings");
+}
+
+// Update the favorites status display
+function updateFavoritesStatus() {
+    if (!state.globalSettings || !state.globalSettings.username) {
+        elements.favoritesStatus.textContent = 'Username required';
+        elements.fetchFavoritesBtn.disabled = true;
+        return;
+    }
+    
+    if (!state.credentialsValid) {
+        elements.favoritesStatus.textContent = 'Invalid credentials';
+        elements.fetchFavoritesBtn.disabled = true;
+        return;
+    }
+    
+    elements.fetchFavoritesBtn.disabled = false;
+    
+    // Check if we have cached favorites
+    if (isFavoritesCacheValid(state.globalSettings.username)) {
+        const cache = getCachedFavorites();
+        const lastFetched = formatRelativeTime(cache.favoritesLastFetched);
+        const count = cache.favoritesPosts.length;
+        elements.favoritesStatus.textContent = `${count} favorites cached (${lastFetched})`;
+        elements.favoritesStatus.style.color = 'var(--e621-text-secondary)';
+    } else {
+        elements.favoritesStatus.textContent = 'Cache expired or not found';
+        elements.favoritesStatus.style.color = 'var(--e621-text-secondary)';
+    }
+}
+
+// Fetch and analyze favorites
+async function fetchAndAnalyzeFavorites(forceRefresh = false) {
+    if (!state.globalSettings || !state.globalSettings.username || !state.globalSettings.apikey) {
+        alert('Please enter your e621 username and API key first.');
+        return;
+    }
+    
+    if (!state.credentialsValid) {
+        alert('Please enter valid credentials first. Save settings to validate.');
+        return;
+    }
+    
+    if (state.fetchingFavorites) {
+        Logger.log('[fetchAndAnalyzeFavorites] Already fetching favorites');
+        return;
+    }
+    
+    state.fetchingFavorites = true;
+    elements.fetchFavoritesBtn.disabled = true;
+    elements.favoritesStatus.textContent = 'Fetching favorites...';
+    elements.favoritesStatus.style.color = 'var(--e621-text-primary)';
+    
+    try {
+        // Progress callback
+        const progressCallback = (progress) => {
+            if (progress.complete) {
+                elements.favoritesStatus.textContent = `Fetched ${progress.fetched} favorites. Analyzing...`;
+            } else {
+                elements.favoritesStatus.textContent = `Fetching favorites... (page ${progress.page}, ${progress.fetched} so far)`;
+            }
+        };
+        
+        // Fetch favorites
+        Logger.log('[fetchAndAnalyzeFavorites] Starting fetch...');
+        const favorites = await loadFavorites(
+            state.globalSettings.username,
+            state.globalSettings.apikey,
+            progressCallback,
+            forceRefresh
+        );
+        
+        Logger.log(`[fetchAndAnalyzeFavorites] Fetched ${favorites.length} favorites`);
+        
+        if (favorites.length === 0) {
+            elements.favoritesStatus.textContent = 'No favorites found';
+            elements.favoritesStatus.style.color = '#ff6b6b';
+            alert('No favorites found on your e621 account. Please favorite some posts first!');
+            return;
+        }
+        
+        if (favorites.length < 5) {
+            elements.favoritesStatus.textContent = `Only ${favorites.length} favorites found (need at least 5)`;
+            elements.favoritesStatus.style.color = '#ff6b6b';
+            alert('You need at least 5 favorites to generate recommendations. Please favorite more posts on e621.net first!');
+            return;
+        }
+        
+        // Analyze tags
+        elements.favoritesStatus.textContent = 'Analyzing tags...';
+        Logger.log('[fetchAndAnalyzeFavorites] Analyzing tags...');
+        await analyzeTagsFromFavorites(favorites);
+        
+        // Show success
+        elements.favoritesStatus.textContent = `✓ ${favorites.length} favorites analyzed`;
+        elements.favoritesStatus.style.color = '#51cf66';
+        
+        Logger.log('[fetchAndAnalyzeFavorites] Analysis complete');
+        
+        // Show stats in debug mode
+        if (state.globalSettings.debug) {
+            const stats = getRecommendationStats();
+            Logger.log('[fetchAndAnalyzeFavorites] Recommendation stats:', stats);
+        }
+        
+    } catch (error) {
+        Logger.error('[fetchAndAnalyzeFavorites] Error:', error);
+        elements.favoritesStatus.textContent = `Error: ${error.message}`;
+        elements.favoritesStatus.style.color = '#ff6b6b';
+        alert(`Failed to fetch favorites: ${error.message}`);
+    } finally {
+        state.fetchingFavorites = false;
+        elements.fetchFavoritesBtn.disabled = false;
+    }
 }
 
 export async function saveGlobalSettings() {
@@ -246,4 +366,9 @@ export function setupSettingsPanel() {
     elements.creditsButton.addEventListener('click', openCredits);
     elements.searchButton.addEventListener('click', openSearchTab);
     document.getElementById("saveGlobalSettings").addEventListener('click', saveGlobalSettings);
+    
+    // Favorites fetch button
+    elements.fetchFavoritesBtn.addEventListener('click', () => {
+        fetchAndAnalyzeFavorites(true); // Force refresh
+    });
 }

@@ -35,5 +35,15 @@ export const state = {
     credentialsValid: false, // Whether username/API key are valid
     currentPostId: null, // Current post ID being displayed
     currentPostIsFavorited: false, // Whether current post is favorited
-    favoritesCache: new Set() // Cache of favorited post IDs for quick lookup
+    favoritesCache: new Set(), // Cache of favorited post IDs for quick lookup
+    // Recommendation mode state
+    favoritesCachedData: null, // Cached favorites data from localStorage
+    recommendationMode: false, // Whether recommendation mode is active
+    recommendationTimePeriod: 'month', // 'week', 'month', '6months', 'year'
+    analyzedTags: null, // Cached tag analysis results
+    fetchingFavorites: false, // Whether favorites are currently being fetched
+    // Image preloading state
+    preloadedImages: [], // Array of preloaded Image objects with metadata {image, url, fileId, post}
+    preloadingPromises: [], // Track ongoing preload operations
+    maxPreloadCount: 2 // Maximum number of images to preload ahead
 };

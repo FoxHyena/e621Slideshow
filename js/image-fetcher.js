@@ -99,6 +99,7 @@ export async function getNewImageUrl(recursionDepth = 0, page = null, batchSize 
         state.prefetchedBatch = [];
         state.prefetchedPage = null;
         state.prefetchPromise = null;
+        clearPreloadQueue(); // Clear preloaded images when query changes
     }
 
     // Use cached batch if available and we haven't exhausted it
@@ -289,4 +290,182 @@ async function processBatch(posts, startIndex, page, recursionDepth) {
 
         return fileUrl;
     }
+}
+
+// Clear the preload queue and abort any ongoing preloads
+export function clearPreloadQueue() {
+    Logger.log(`[clearPreloadQueue] Clearing ${state.preloadedImages.length} preloaded images and ${state.preloadingPromises.length} ongoing preloads`);
+    
+    // Clear preloaded images
+    state.preloadedImages = [];
+    
+    // Abort ongoing preload operations (they'll just be ignored when they complete)
+    state.preloadingPromises = [];
+}
+
+// Peek at the next N valid posts without consuming them from the batch
+export async function peekNextPosts(count) {
+    const peekedPosts = [];
+    let currentIndex = state.currentBatchIndex;
+    let currentBatch = state.currentPostBatch;
+    let currentPage = state.currentBatchPage;
+    let checkedPrefetch = false;
+    
+    Logger.log(`[peekNextPosts] Peeking for ${count} posts starting from index ${currentIndex} in batch page ${currentPage}`);
+    
+    while (peekedPosts.length < count) {
+        // Check if we need to look at the next batch
+        if (currentIndex >= currentBatch.length) {
+            // Check if we have a prefetched batch we can peek into
+            if (!checkedPrefetch && state.prefetchedBatch.length > 0) {
+                Logger.log(`[peekNextPosts] Moving to prefetched batch (page ${state.prefetchedPage})`);
+                currentBatch = state.prefetchedBatch;
+                currentPage = state.prefetchedPage;
+                currentIndex = 0;
+                checkedPrefetch = true;
+            } else {
+                // We've exhausted available batches, can't peek further
+                Logger.log(`[peekNextPosts] Exhausted available batches, found ${peekedPosts.length} posts`);
+                break;
+            }
+        }
+        
+        // Look through current batch for valid posts
+        for (let i = currentIndex; i < currentBatch.length && peekedPosts.length < count; i++) {
+            const post = currentBatch[i];
+            
+            // Apply the same filtering logic as processBatch
+            if (!post.file || !post.file.url) {
+                Logger.log(`[peekNextPosts] Post ${i} (ID: ${post.id}): URL is Null`);
+                currentIndex++;
+                continue;
+            } else if (!isFiletypeAllowed(post)) {
+                Logger.log(`[peekNextPosts] Post ${i} (ID: ${post.id}): Wrong filetype`);
+                currentIndex++;
+                continue;
+            } else if (state.urlHistorySet.has(post.id)) {
+                Logger.log(`[peekNextPosts] Post ${i} (ID: ${post.id}): Already in history`);
+                currentIndex++;
+                continue;
+            } else if (isWhitelisted(post)) {
+                Logger.log(`[peekNextPosts] Post ${i} (ID: ${post.id}): Valid for preload`);
+                peekedPosts.push({
+                    url: post.file.url,
+                    fileId: post.id,
+                    post: post
+                });
+                currentIndex++;
+            } else {
+                Logger.log(`[peekNextPosts] Post ${i} (ID: ${post.id}): Not whitelisted`);
+                currentIndex++;
+                continue;
+            }
+        }
+        
+        // If we've gone through the entire batch and don't have enough posts
+        if (currentIndex >= currentBatch.length && peekedPosts.length < count) {
+            if (!checkedPrefetch) {
+                // Try prefetched batch
+                currentIndex = currentBatch.length; // This will trigger the prefetch check in next iteration
+            } else {
+                // Can't peek further
+                break;
+            }
+        }
+    }
+    
+    Logger.log(`[peekNextPosts] Found ${peekedPosts.length} valid posts for preloading`);
+    return peekedPosts;
+}
+
+// Preload the next N images
+export async function preloadNextImages(count = state.maxPreloadCount) {
+    // Don't preload if paused or page is hidden
+    if (state.paused || state.pageIsHidden) {
+        Logger.log(`[preloadNextImages] Skipping preload (paused: ${state.paused}, pageIsHidden: ${state.pageIsHidden})`);
+        return;
+    }
+    
+    // Don't preload if we already have enough preloaded images
+    if (state.preloadedImages.length >= count) {
+        Logger.log(`[preloadNextImages] Already have ${state.preloadedImages.length} preloaded images`);
+        return;
+    }
+    
+    // Calculate how many more we need to preload
+    const neededCount = count - state.preloadedImages.length;
+    Logger.log(`[preloadNextImages] Need to preload ${neededCount} more images (currently have ${state.preloadedImages.length})`);
+    
+    // Get the next posts to preload
+    const postsToPreload = await peekNextPosts(neededCount);
+    
+    if (postsToPreload.length === 0) {
+        Logger.log(`[preloadNextImages] No posts available to preload`);
+        return;
+    }
+    
+    // Start preloading each image
+    for (const postInfo of postsToPreload) {
+        // Check if this image is already being preloaded or already preloaded
+        const alreadyPreloaded = state.preloadedImages.some(p => p.fileId === postInfo.fileId);
+        const alreadyPreloading = state.preloadingPromises.some(p => p.fileId === postInfo.fileId);
+        
+        if (alreadyPreloaded || alreadyPreloading) {
+            Logger.log(`[preloadNextImages] Post ${postInfo.fileId} already preloaded or preloading`);
+            continue;
+        }
+        
+        Logger.log(`[preloadNextImages] Starting preload for post ${postInfo.fileId}: ${postInfo.url}`);
+        
+        // Create the promise for this preload
+        const preloadPromise = new Promise((resolve, reject) => {
+            const img = new Image();
+            
+            img.onload = () => {
+                Logger.log(`[preloadNextImages] Successfully preloaded image ${postInfo.fileId}`);
+                
+                // Add to preloaded images if not already there and not paused
+                if (!state.paused && !state.pageIsHidden) {
+                    const alreadyExists = state.preloadedImages.some(p => p.fileId === postInfo.fileId);
+                    if (!alreadyExists) {
+                        state.preloadedImages.push({
+                            image: img,
+                            url: postInfo.url,
+                            fileId: postInfo.fileId,
+                            post: postInfo.post
+                        });
+                        Logger.log(`[preloadNextImages] Added preloaded image to queue. Queue size: ${state.preloadedImages.length}`);
+                    }
+                }
+                
+                // Remove from ongoing promises
+                state.preloadingPromises = state.preloadingPromises.filter(p => p.fileId !== postInfo.fileId);
+                resolve();
+            };
+            
+            img.onerror = () => {
+                Logger.error(`[preloadNextImages] Failed to preload image ${postInfo.fileId}: ${postInfo.url}`);
+                
+                // Remove from ongoing promises
+                state.preloadingPromises = state.preloadingPromises.filter(p => p.fileId !== postInfo.fileId);
+                reject(new Error(`Failed to preload image ${postInfo.fileId}`));
+            };
+            
+            // Start loading the image
+            img.src = postInfo.url;
+        });
+        
+        // Track this preload operation
+        state.preloadingPromises.push({
+            fileId: postInfo.fileId,
+            promise: preloadPromise
+        });
+        
+        // Don't await - let it load in the background
+        preloadPromise.catch(() => {
+            // Silently handle errors - preload failures shouldn't break the slideshow
+        });
+    }
+    
+    Logger.log(`[preloadNextImages] Started preloading ${postsToPreload.length} images. Total preloading: ${state.preloadingPromises.length}, Total preloaded: ${state.preloadedImages.length}`);
 }

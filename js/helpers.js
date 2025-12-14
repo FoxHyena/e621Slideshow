@@ -3,6 +3,7 @@ import { elements } from './dom-elements.js';
 import Logger from './logger.js';
 import { buildPostApiUrl } from './api-client.js';
 import { DEFAULT_BATCH_SIZE } from './constants.js';
+import { clearPreloadQueue } from './image-fetcher.js';
 
 export function isWhitelisted(postData) {
     let whitelist = state.globalSettings.globalwhitelist.split(" ");
@@ -62,6 +63,7 @@ export async function pause() {
     state.isSearchingForNewImage = false;
     const { hideLoading } = await import('./ui-controls.js');
     hideLoading();
+    clearPreloadQueue(); // Clear preloaded images when paused
     updateDocumentTitle(); // Defined below in this same file
 }
 
@@ -143,6 +145,7 @@ export function handleVisibilityChange() {
         // Clear timeouts when page becomes hidden to prevent unnecessary operations
         clearTimeout(state.timeoutId);
         clearTimeout(state.hideTimeout);
+        clearPreloadQueue(); // Clear preloaded images when page is hidden
     }
 }
 
